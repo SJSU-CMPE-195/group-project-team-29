@@ -1,0 +1,165 @@
+"""Check which submissions are missing a codeval comment newer than the submission."""
+
+import sys
+from datetime import datetime, timedelta, timezone
+from math import floor
+
+import click
+
+from assignment_codeval.canvas_utils import (
+    connect_to_canvas, get_course,
+    get_canvas_credentials, graphql_request, fetch_all_submissions,
+)
+from assignment_codeval.commons import debug, error
+
+ASSIGNMENTS_QUERY = """
+query AssignmentsQuery($courseId: ID!) {
+  course(id: $courseId) {
+    assignmentGroupsConnection {
+      nodes {
+        name
+        assignmentsConnection {
+          nodes {
+            _id
+            name
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _format_elapsed(submitted_at_str):
+    """Format elapsed time since submission as a human-readable string."""
+    submitted = datetime.fromisoformat(submitted_at_str)
+    delta = datetime.now(timezone.utc) - submitted
+    total_minutes = floor(delta.total_seconds() / 60)
+    if total_minutes < 60:
+        return f"{total_minutes}m"
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+    if hours < 24:
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    days = hours // 24
+    hours = hours % 24
+    if hours:
+        return f"{days}d {hours}h"
+    return f"{days}d"
+
+
+def _has_codeval_comment_after_submission(submission_node, codeval_prefix):
+    """Check if a submission has a codeval comment newer than the submission.
+
+    Returns True if the submission doesn't need evaluation (either not submitted,
+    or has a codeval comment after the submission time).
+    """
+    submitted_at = submission_node.get("submittedAt")
+    if submitted_at is None:
+        return True
+
+    comments = submission_node.get("commentsConnection", {}).get("nodes", [])
+    for comment in comments:
+        text = comment.get("comment", "")
+        if not text.startswith(codeval_prefix.rstrip()):
+            continue
+        created_at = comment.get("createdAt")
+        if created_at and created_at > submitted_at:
+            return True
+    return False
+
+
+@click.command()
+@click.argument("course_name", metavar="COURSE")
+@click.option("--assignment-group", default="Assignments", show_default=True,
+              help="Name of the assignment group to check")
+@click.option("--codeval-prefix", default="codeval: ", show_default=True,
+              help="Prefix used to identify codeval comments")
+@click.option("--verbose", "-v", is_flag=True, help="Show all submissions, not just missing ones")
+@click.option("--warn", "-w", is_flag=True, help="Show warnings for recent submissions awaiting comments")
+@click.option("--max-comment-delay", default=30, show_default=True,
+              help="Minutes to allow before flagging a missing comment as an error")
+def check_grading(course_name, assignment_group, codeval_prefix, verbose, warn, max_comment_delay):
+    """Check which submissions are missing a codeval comment.
+
+    Shows submissions that have not been evaluated by codeval, or where
+    the submission is newer than the most recent codeval comment.
+    """
+    (canvas, user) = connect_to_canvas()
+    course = get_course(canvas, course_name)
+    base_url, token = get_canvas_credentials()
+
+    debug(f"fetching assignment groups for course {course.name} (id={course.id})")
+    data = graphql_request(base_url, token, ASSIGNMENTS_QUERY, {"courseId": str(course.id)})
+
+    groups = data["course"]["assignmentGroupsConnection"]["nodes"]
+    target_group = None
+    for group in groups:
+        if group["name"] == assignment_group:
+            target_group = group
+            break
+
+    if target_group is None:
+        available = [g["name"] for g in groups]
+        error(f"assignment group '{assignment_group}' not found. available: {available}")
+        sys.exit(1)
+
+    assignments = target_group["assignmentsConnection"]["nodes"]
+    if not assignments:
+        click.echo(f"no assignments found in group '{assignment_group}'")
+        return
+
+    total_missing = 0
+    total_warned = 0
+    total_checked = 0
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_comment_delay)
+
+    for assignment in assignments:
+        assignment_id = assignment["_id"]
+        assignment_name = assignment["name"]
+        debug(f"checking assignment: {assignment_name}")
+
+        submissions = fetch_all_submissions(base_url, token, assignment_id)
+
+        missing = []
+        warned = []
+        checked = 0
+        for sub in submissions:
+            submitted_at_str = sub.get("submittedAt")
+            if submitted_at_str is None:
+                continue
+            checked += 1
+            student_name = sub.get("user", {}).get("name", "Unknown")
+            has_comment = _has_codeval_comment_after_submission(sub, codeval_prefix)
+            if has_comment:
+                if verbose:
+                    click.echo(f"  \u2705 {student_name}")
+            else:
+                elapsed = _format_elapsed(submitted_at_str)
+                label = f"{student_name} ({elapsed})"
+                recent = datetime.fromisoformat(submitted_at_str) >= cutoff
+                if recent:
+                    warned.append(label)
+                    if verbose or warn:
+                        click.echo(f"  \u26a0\ufe0f {label}")
+                else:
+                    missing.append(label)
+                    if verbose:
+                        click.echo(click.style(f"  \u2717 {label}", fg='red'))
+
+        total_checked += checked
+        total_missing += len(missing)
+        total_warned += len(warned)
+
+        if missing or warned or verbose:
+            parts = [f"{len(missing)}/{checked} missing grading"]
+            click.echo(f"\n{assignment_name}: {', '.join(parts)}")
+
+        if not verbose and missing:
+            for label in missing:
+                click.echo(click.style(f"  \u2717 {label}", fg='red'))
+
+    if total_missing:
+        sys.exit(2)
+

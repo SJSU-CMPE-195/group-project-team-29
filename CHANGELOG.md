@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.0.28
+
+- Fix check-grading not recognizing codeval comments where the prefix trailing space was stripped during upload
+
+## 0.0.27
+
+- Upload assignment files to per-assignment subfolder under CodEval instead of the root CodEval folder
+
+## 0.0.26
+
+- Replace `cat -te | head -22` shell pipeline with pure Python `_render_diff_output()` for diff output rendering
+- Add SUBSTITUTIONS.txt support for comment text replacement before Canvas upload
+  - evaluate-submissions copies SUBSTITUTIONS.txt from zip files to submission directory
+  - upload-submission-comments applies literal string substitutions from SUBSTITUTIONS.txt
+  - File format: each line is `<delim>pattern<delim>replacement<delim>` (first char defines delimiter)
+- Add OLEN tag to override the default 4096-byte diff output length limit
+- Escape `<` as `&lt;` in comments and wrap in `<pre>` tags for Canvas upload
+
+## 0.0.25
+
+- Add export-tests command to extract test cases from codeval files into a zip archive
+  - Exports in.X, out.X, err.X files and a TESTS.md summary for each test case
+  - --include-hidden flag to include hidden test cases
+  - Reads IF/OF file contents from Z-tag zip archives
+- Updated submission file UI
+- Replace regex function detection with objdump/javap/ast for CF tag
+- Add PRINT tag for printing section labels
+- Track file timestamps and compare outputs for file-based test cases
+
+## 0.0.24
+
+- Convert recent-comments to use Canvas GraphQL API instead of REST for faster performance
+- Extract shared GraphQL helpers (get_canvas_credentials, graphql_request, fetch_all_submissions) to canvas_utils.py
+- Fix missing comments when a student has more than 20 codeval comments by sorting newest-first
+
+## 0.0.23
+
+- Add check-grading command to find submissions missing a codeval comment
+  - Shows elapsed time since submission for ungraded students
+  - --warn flag to show recent submissions awaiting comments
+  - --max-comment-delay to configure warning threshold
+  - --verbose flag to show all submissions
+
 ## 0.0.22
 
 - Fix HTML generation for create-assignment ignoring OF, OB, IF, IB, EB tags

@@ -1,9 +1,11 @@
 import click
 
 from assignment_codeval.ai_benchmark import get_benchmark_command
+from assignment_codeval.check_grading import check_grading
 from assignment_codeval.commons import set_config
 from assignment_codeval.create_assignment import create_assignment
 from assignment_codeval.evaluate import run_evaluation
+from assignment_codeval.export_tests import export_tests
 from assignment_codeval.github_connect import github_setup_repo
 from assignment_codeval.install_assignment import install_assignment
 from assignment_codeval.recent_comments import recent_comments
@@ -24,6 +26,8 @@ cli.add_command(create_assignment)
 cli.add_command(list_codeval_assignments)
 cli.add_command(install_assignment)
 cli.add_command(recent_comments)
+cli.add_command(check_grading)
+cli.add_command(export_tests)
 cli.add_command(get_benchmark_command())
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ def get_testing_path(filename: str) -> str:
 test_args = ""
 cmps = []
 timeout_val = 10
+output_length_limit = 4096
 expected_exit_code = -1
 test_case_count = 0
 test_case_hint = ""
@@ -37,10 +38,20 @@ num_failed = 0
 is_hidden_testcase = False
 is_verbose = False
 compilelog = []
+last_compile_command = ""
 
 ###########################################################
 # Specification Tags to Function Mapping
 ###########################################################
+
+# Shell commands that likely indicate a missing CMD prefix when found untagged
+_BARE_SHELL_COMMANDS = {
+    'echo', 'rm', 'cp', 'mv', 'mkdir', 'rmdir', 'cat', 'ls', 'grep',
+    'sed', 'awk', 'find', 'chmod', 'chown', 'touch', 'ln', 'diff',
+    'sort', 'head', 'tail', 'cut', 'tr', 'wc', 'bash', 'sh', 'python',
+    'python3', 'make', 'export', 'source', 'kill', 'pkill', 'sleep',
+    'printf', 'read', 'unzip', 'tar', 'curl', 'wget',
+}
 
 
 def compile_code(compile_command):
@@ -52,6 +63,9 @@ def compile_code(compile_command):
     Returns:
         None
     """
+    global last_compile_command
+    last_compile_command = compile_command
+
     if test_case_count != 0:
         check_test()
 
@@ -109,6 +123,44 @@ def _find_compiled_artifact(source_file):
         if os.path.exists(candidate):
             return candidate
     return None
+
+
+def _extract_executable_from_compile(compile_command):
+    """Extract the output executable name from a compile command (looks for -o <name>).
+
+    Returns the executable name, or None if not found.
+    """
+    parts = compile_command.split()
+    for i, part in enumerate(parts):
+        if part == '-o' and i + 1 < len(parts):
+            return parts[i + 1]
+    return None
+
+
+def _extract_source_files_from_compile(compile_command):
+    """Extract source file arguments from a compile command.
+
+    Recognises common source file extensions (.c, .cpp, .cc, .cxx, .java, .py)
+    and skips option arguments that consume the following token as a value
+    (e.g. -o, -I, -L, -l, -include, -isystem, -MF, -MT, -MQ).
+
+    Returns a list of source file paths found in the command.
+    """
+    source_exts = ('.c', '.cpp', '.cc', '.cxx', '.java', '.py')
+    value_flags = {'-o', '-I', '-L', '-l', '-include', '-isystem', '-MF', '-MT', '-MQ'}
+    parts = compile_command.split()
+    files = []
+    skip_next = False
+    for part in parts:
+        if skip_next:
+            skip_next = False
+            continue
+        if part in value_flags:
+            skip_next = True
+            continue
+        if not part.startswith('-') and any(part.endswith(ext) for ext in source_exts):
+            files.append(part)
+    return files
 
 
 def _function_used_in_c_cpp(function_name, files):
@@ -208,14 +260,20 @@ def _function_used_regex(function_name, files):
     return result.returncode == 0
 
 
-def _is_function_used(function_name, files):
+def _is_function_used(function_name, files, allow_regex_fallback=True):
     """Detect whether function_name is used in the given files.
 
     Dispatches to the appropriate tool based on file language:
-      - C/C++:  objdump on compiled artifact (falls back to regex if none found)
-      - Java:   javap on .class file (falls back to regex if none found)
+      - C/C++:  objdump on compiled artifact (falls back to regex if none found
+                and allow_regex_fallback is True)
+      - Java:   javap on .class file (falls back to regex if none found
+                and allow_regex_fallback is True)
       - Python: ast module on source
-      - Other:  regex on source
+      - Other:  regex on source (only when allow_regex_fallback is True)
+
+    When allow_regex_fallback is False (used when no filename was given in the
+    CF tag), the function relies solely on compiled-artifact inspection and
+    returns False rather than falling back to regex.
     """
     lang = _detect_language(files)
     if lang == 'python':
@@ -223,36 +281,56 @@ def _is_function_used(function_name, files):
     if lang == 'java':
         result = _function_used_in_java(function_name, files)
         if result is None:
-            return _function_used_regex(function_name, files)
+            return _function_used_regex(function_name, files) if allow_regex_fallback else False
         return result
     if lang == 'c_cpp':
         result = _function_used_in_c_cpp(function_name, files)
         if result is None:
-            return _function_used_regex(function_name, files)
+            return _function_used_regex(function_name, files) if allow_regex_fallback else False
         return result
-    return _function_used_regex(function_name, files)
+    if allow_regex_fallback:
+        return _function_used_regex(function_name, files)
+    return False
 
 
 def check_function(args):
-    """Will be followed by a function name and a list of files to check to ensure that the function
-    is used by one of those files.
+    """Will be followed by a function name and an optional list of files to check to ensure that
+    the function is used by one of those files.
+
+    When no filename is provided (preferred usage), the source files are derived from the most
+    recent C (compile) tag.  The check then relies solely on compiled-artifact inspection
+    (objdump for C/C++, javap for Java, ast for Python) with no regex fallback.
+
+    When a filename is provided (legacy usage), the same compiled-artifact inspection is used
+    first, but a regex scan of the source file is available as a fallback when no compiled
+    artifact can be found.
 
     Arguments:
         function_name: the function name to check files for usage of
-        *files: the files to check for the function name
+        *files: (optional) the files to check for the function name.  If omitted, source
+                files are inferred from the most recent C tag.
 
     Returns:
         None
     """
     check_test()
-    args = args.split()
-    function_name = args[0]
-    files = args[1:]
+    args_list = args.split()
+    function_name = args_list[0]
+    files = args_list[1:]
 
-    if _is_function_used(function_name, files):
-        print(f"Used {function_name} PASSED")
+    if not files:
+        # No filename provided — derive source files from the compile command and
+        # disable the regex fallback (compiled-artifact check only).
+        files = _extract_source_files_from_compile(last_compile_command)
+        if _is_function_used(function_name, files, allow_regex_fallback=False):
+            print(f"Used {function_name} PASSED")
+        else:
+            print(f"Not using {function_name} FAILED")
     else:
-        print(f"Not using {function_name} FAILED")
+        if _is_function_used(function_name, files):
+            print(f"Used {function_name} PASSED")
+        else:
+            print(f"Not using {function_name} FAILED")
 
 def check_object(args):
     """Will be followed by an object and a list of files to ensure that the function is
@@ -351,22 +429,38 @@ def check_container(args):
     
 
 def check_not_function(args):
-    """Will be followed by a function name and a list of files to check to ensure that the function
-    is not used by any of those files.
+    """Will be followed by a function name and an optional list of files to check to ensure that
+    the function is not used by any of those files.
+
+    When no filename is provided (preferred usage), the source files are derived from the most
+    recent C (compile) tag.  The check relies solely on compiled-artifact inspection with no
+    regex fallback.
+
+    When a filename is provided (legacy usage), compiled-artifact inspection is used first with
+    a regex fallback when no compiled artifact is found.
 
     Arguments:
         function_name: the function name to check files for usage of
-        *files: the files to check for the function name
+        *files: (optional) the files to check for the function name.  If omitted, source
+                files are inferred from the most recent C tag.
 
     Returns:
         None
     """
     check_test()
-    args = args.split()
-    function_name = args[0]
-    files = args[1:]
+    args_list = args.split()
+    function_name = args_list[0]
+    files = args_list[1:]
 
-    if _is_function_used(function_name, files):
+    if not files:
+        # No filename provided — derive source files from the compile command and
+        # disable the regex fallback (compiled-artifact check only).
+        files = _extract_source_files_from_compile(last_compile_command)
+        used = _is_function_used(function_name, files, allow_regex_fallback=False)
+    else:
+        used = _is_function_used(function_name, files)
+
+    if used:
         print(f"Used {function_name} FAILED")
     else:
         print(f"Not using {function_name} PASSED")
@@ -643,6 +737,19 @@ def timeout(timeout_sec):
     timeout_val = float(timeout_sec)
 
 
+def output_length(length):
+    """Specifies the maximum number of bytes of diff output to render. Defaults to 4096.
+
+    Arguments:
+        length: maximum output length in bytes
+
+    Returns:
+        None
+    """
+    global output_length_limit
+    output_length_limit = int(length)
+
+
 def exit_code(test_case_exit_code):
     """Specifies the expected exit code for a test case. Defaults to zero.
 
@@ -726,6 +833,7 @@ tag_func_map = {
     "EB": check_error_bare,
     "HINT": hint,
     "TO": timeout,
+    "OLEN": output_length,
     "X": exit_code,
     "SS": start_server,
 }
@@ -825,6 +933,13 @@ def parse_tags(tags: list[str]):
                     print(f"  {line_num}: {tag_line.rstrip()}")
                     print(f"  Valid tags are: {', '.join(sorted(valid_tags))}")
                     sys.exit(1)
+            else:
+                # Check if this looks like a bare shell command missing a CMD prefix
+                first_word = tag_line.split()[0] if tag_line.split() else ""
+                if first_word.lower() in _BARE_SHELL_COMMANDS:
+                    print(f"Warning on line {line_num}: bare shell command without CMD prefix, shell commands will be ignored")
+                    print(f"  {line_num}: {tag_line.rstrip()}")
+                    print(f"  Did you mean: CMD {tag_line.rstrip()}")
             continue
 
         tag = tag_match.group(1)
@@ -907,6 +1022,72 @@ def parse_diff(diff_lines: list[str], testing_dir: str):
                     outfile.write(line)
 
 
+def _render_diff_output(raw_bytes: bytes) -> str:
+    """Render raw bytes for diff output, making unprintable characters visible.
+
+    Replaces the shell pipeline `cat -te | head -22` with pure Python.
+    """
+    result = []
+    i = 0
+    n = len(raw_bytes)
+
+    while i < n:
+        b = raw_bytes[i]
+
+        if b == 0x0A:  # newline
+            result.append("$\n")
+            i += 1
+        elif b == 0x20 or (0x21 <= b <= 0x7E):  # space or printable ASCII
+            result.append(chr(b))
+            i += 1
+        elif b <= 0x1F:  # control chars (except newline handled above)
+            result.append("^" + chr(b + 0x40))
+            i += 1
+        elif b == 0x7F:  # DEL
+            result.append("^?")
+            i += 1
+        elif b >= 0x80:
+            # Try to decode as UTF-8 multi-byte sequence
+            seq_len = 0
+            if (b & 0xE0) == 0xC0:
+                seq_len = 2
+            elif (b & 0xF0) == 0xE0:
+                seq_len = 3
+            elif (b & 0xF8) == 0xF0:
+                seq_len = 4
+
+            decoded_char = None
+            if seq_len >= 2 and i + seq_len <= n:
+                try:
+                    decoded_char = raw_bytes[i:i + seq_len].decode("utf-8")
+                except UnicodeDecodeError:
+                    pass
+
+            if decoded_char and len(decoded_char) == 1 and decoded_char.isprintable():
+                result.append(decoded_char)
+                i += seq_len
+            elif decoded_char and len(decoded_char) == 1:
+                # Valid UTF-8 but non-printable: render each byte as \xCC
+                for j in range(seq_len):
+                    result.append(f"\\x{raw_bytes[i + j]:02X}")
+                i += seq_len
+            else:
+                # Invalid UTF-8 byte
+                result.append(f"\\x{b:02X}")
+                i += 1
+        else:
+            result.append(chr(b))
+            i += 1
+
+    output = "".join(result)
+
+    # If output doesn't end with \n, append $ at the very end
+    if output and not output.endswith("\n"):
+        output += "$"
+
+    return output
+
+
 def _find_touched_files(pre_run_timestamp):
     """Find files touched (modified or accessed) since pre_run_timestamp.
 
@@ -960,24 +1141,22 @@ def check_test():
     # Difflog handling
     with open(get_testing_path("difflog"), "w") as outfile:
         diff_popen = subprocess.Popen(
-            f"diff -U1 -a ./{TESTING_DIR}/youroutput ./{TESTING_DIR}/expectedoutput | cat -te | head -22",
-            shell=True,
-            stdout=outfile,
-            stderr=outfile,
-            text=True,
+            ["diff", "-U1", "-a",
+             f"./{TESTING_DIR}/youroutput", f"./{TESTING_DIR}/expectedoutput"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
-        diff_popen.communicate()
+        raw_output, _ = diff_popen.communicate()
+        outfile.write(_render_diff_output(raw_output[:output_length_limit]))
 
     # Append to difflog second time around
     with open(get_testing_path("difflog"), "a") as outfile:
         diff_popen = subprocess.Popen(
-            f"diff -U1 -a ./{TESTING_DIR}/yourerror ./{TESTING_DIR}/expectederror | cat -te | head -22",
-            shell=True,
-            stdout=outfile,
-            stderr=outfile,
-            text=True,
+            ["diff", "-U1", "-a",
+             f"./{TESTING_DIR}/yourerror", f"./{TESTING_DIR}/expectederror"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
-        diff_popen.communicate()
+        raw_output, _ = diff_popen.communicate()
+        outfile.write(_render_diff_output(raw_output[:output_length_limit]))
 
     # Now read all the lines to accumulate both diffs
     with open(get_testing_path("difflog"), "r") as infile:

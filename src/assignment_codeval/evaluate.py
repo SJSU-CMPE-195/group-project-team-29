@@ -39,6 +39,7 @@ is_hidden_testcase = False
 is_verbose = False
 compilelog = []
 last_compile_command = ""
+temp_files = []
 
 ###########################################################
 # Specification Tags to Function Mapping
@@ -505,6 +506,7 @@ def run_command_noerror(command):
         None
     """
     check_test()
+    _cleanup_temp_files()
 
     # Run as test case
     global test_case_count
@@ -553,6 +555,7 @@ def test_case(test_case_command):
         None
     """
     check_test()
+    _cleanup_temp_files()
 
     # Clear hint
     global test_case_hint
@@ -581,6 +584,7 @@ def test_case_hidden(test_case_command):
         None
     """
     check_test()
+    _cleanup_temp_files()
 
     # Clear hint
     global test_case_hint
@@ -724,6 +728,30 @@ def hint(hints):
     test_case_hint = hints
 
 
+def register_temp_file(filename):
+    """Registers a file to be deleted before and after the next T, HT, or TCMD test.
+
+    Arguments:
+        filename: the file to delete before and after the next test
+
+    Returns:
+        None
+    """
+    global temp_files
+    temp_files.append(filename.strip())
+
+
+def _cleanup_temp_files():
+    """Delete all registered temp files and reset the list."""
+    global temp_files
+    for f in temp_files:
+        try:
+            os.remove(f)
+        except FileNotFoundError:
+            pass
+    temp_files = []
+
+
 def timeout(timeout_sec):
     """Specifies the time limit in seconds for a test case to run. Defaults to 20 seconds.
 
@@ -836,6 +864,7 @@ tag_func_map = {
     "OLEN": output_length,
     "X": exit_code,
     "SS": start_server,
+    "TEMP": register_temp_file,
 }
 
 

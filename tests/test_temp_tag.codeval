@@ -1,0 +1,9 @@
+# Test that the TEMP tag deletes a file before the next test runs.
+# First test creates a file. Second test uses TEMP to ensure it's gone before running.
+
+T touch /tmp/codeval_temp_test.txt
+X 0
+
+TEMP /tmp/codeval_temp_test.txt
+T test ! -f /tmp/codeval_temp_test.txt && echo deleted || echo still_exists
+O deleted

@@ -40,6 +40,7 @@ is_verbose = False
 compilelog = []
 last_compile_command = ""
 temp_files = []
+_active_temp_files = []
 
 ###########################################################
 # Specification Tags to Function Mapping
@@ -506,7 +507,7 @@ def run_command_noerror(command):
         None
     """
     check_test()
-    _cleanup_temp_files()
+    _pre_test_temp_cleanup()
 
     # Run as test case
     global test_case_count
@@ -555,7 +556,7 @@ def test_case(test_case_command):
         None
     """
     check_test()
-    _cleanup_temp_files()
+    _pre_test_temp_cleanup()
 
     # Clear hint
     global test_case_hint
@@ -750,6 +751,24 @@ def _cleanup_temp_files():
         except FileNotFoundError:
             pass
     temp_files = []
+
+
+def _pre_test_temp_cleanup():
+    """Before a test: delete registered temp files and save the list for post-test cleanup."""
+    global temp_files, _active_temp_files
+    _active_temp_files = list(temp_files)
+    _cleanup_temp_files()
+
+
+def _post_test_temp_cleanup():
+    """After a test: delete the files that were registered when the test started."""
+    global _active_temp_files
+    for f in _active_temp_files:
+        try:
+            os.remove(f)
+        except FileNotFoundError:
+            pass
+    _active_temp_files = []
 
 
 def timeout(timeout_sec):
@@ -1267,14 +1286,14 @@ def check_test():
                                 if len(lines) > 22:
                                     print(f"    ... ({len(lines) - 22} more lines)")
 
-        _cleanup_temp_files()
+        _post_test_temp_cleanup()
         cleanup()
 
         # Exit program after failed test case
         sys.exit(2)
 
     # reinitialize test variables and files here
-    _cleanup_temp_files()
+    _post_test_temp_cleanup()
     setup()
 
 

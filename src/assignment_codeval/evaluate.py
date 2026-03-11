@@ -1267,12 +1267,14 @@ def check_test():
                                 if len(lines) > 22:
                                     print(f"    ... ({len(lines) - 22} more lines)")
 
+        _cleanup_temp_files()
         cleanup()
 
         # Exit program after failed test case
         sys.exit(2)
 
     # reinitialize test variables and files here
+    _cleanup_temp_files()
     setup()
 
 

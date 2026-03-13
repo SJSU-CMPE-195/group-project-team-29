@@ -104,13 +104,41 @@ def _read_of_file_content(of_file, codeval_file):
     return None
 
 
+def _extract_codeval_title(filepath):
+    """Extract the assignment title from the CRT_HW START line of a codeval file.
+    Returns None if no CRT_HW START line is found."""
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                if 'CRT_HW START' in line:
+                    idx = line.index('CRT_HW START') + len('CRT_HW START')
+                    title = line[idx:].strip()
+                    return title if title else None
+    except (OSError, UnicodeDecodeError):
+        pass
+    return None
+
+
 def find_codeval_file(codeval_dir, assignment_name):
     """Find a codeval file by assignment name, case-insensitive.
+    First tries matching by filename, then falls back to checking
+    CRT_HW START titles inside each .codeval file.
     Returns the full path if found, or None if not found."""
     target = f"{assignment_name}.codeval".lower()
+    codeval_files = []
     for f in os.listdir(codeval_dir):
         if f.lower() == target:
             return os.path.join(codeval_dir, f)
+        if f.endswith('.codeval'):
+            codeval_files.append(f)
+
+    # Fallback: check CRT_HW START titles
+    target_name = assignment_name.lower()
+    for f in codeval_files:
+        filepath = os.path.join(codeval_dir, f)
+        title = _extract_codeval_title(filepath)
+        if title and despace(title).lower() == target_name:
+            return filepath
     return None
 
 
@@ -718,7 +746,8 @@ def get_submissions_by_id(assignment):
 
 @click.command()
 @click.argument("course_name", metavar="COURSE", required=False)
-def list_codeval_assignments(course_name):
+@click.option("--path", is_flag=True, help="Show the path to the codeval file")
+def list_codeval_assignments(course_name, path):
     """
     List all assignments that have corresponding codeval files.
 
@@ -737,7 +766,15 @@ def list_codeval_assignments(course_name):
         raise click.UsageError(f"CODEVAL directory does not exist: {codeval_dir}")
 
     # Get all codeval files in the directory (map lowercase name -> original name)
-    codeval_files = {f[:-8].lower(): f[:-8] for f in os.listdir(codeval_dir) if f.endswith('.codeval')}
+    codeval_files = {}
+    codeval_titles = {}  # map despaced-lowercase CRT_HW title -> original filename stem
+    for f in os.listdir(codeval_dir):
+        if f.endswith('.codeval'):
+            stem = f[:-8]
+            codeval_files[stem.lower()] = stem
+            title = _extract_codeval_title(os.path.join(codeval_dir, f))
+            if title:
+                codeval_titles[despace(title).lower()] = stem
     matched_codeval_keys = set()
 
     (canvas, user) = connect_to_canvas()
@@ -751,7 +788,18 @@ def list_codeval_assignments(course_name):
             assignment_key = despace(assignment.name).lower()
             if assignment_key in codeval_files:
                 matched_codeval_keys.add(assignment_key)
-                info(f"{course.name}: {assignment.name}")
+                codeval_path = os.path.join(codeval_dir, f"{codeval_files[assignment_key]}.codeval")
+                if path:
+                    info(f"{course.name}: {assignment.name} [{codeval_path}]")
+                else:
+                    info(f"{course.name}: {assignment.name}")
+            elif assignment_key in codeval_titles:
+                matched_codeval_keys.add(codeval_titles[assignment_key].lower())
+                codeval_path = os.path.join(codeval_dir, f"{codeval_titles[assignment_key]}.codeval")
+                if path:
+                    info(f"{course.name}: {assignment.name} [{codeval_path}]")
+                else:
+                    info(f"{course.name}: {assignment.name}")
 
     # Report codeval files that don't match any assignment
     unmatched_keys = set(codeval_files.keys()) - matched_codeval_keys

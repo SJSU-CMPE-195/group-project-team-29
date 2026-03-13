@@ -1366,8 +1366,5 @@ def run_evaluation(codeval_file):
 
     check_test()
 
-    # cleanup
-    cleanup()
-
     end_time_seconds = time.time()
     print(f"took {end_time_seconds - start_time_seconds} seconds")

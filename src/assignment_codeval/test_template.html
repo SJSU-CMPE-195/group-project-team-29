@@ -85,6 +85,41 @@
     .pass { color: #2e7d32; font-weight: 600; }
     .fail { color: #c62828; font-weight: 600; }
     .error { color: #e65100; font-weight: 600; }
+    .expected-link {
+      font-size: 0.78rem;
+      font-weight: normal;
+      color: #1a73e8;
+      text-decoration: none;
+      margin-left: 8px;
+    }
+    .expected-link:hover { text-decoration: underline; }
+    .expected-outputs {
+      padding: 0 24px 16px;
+    }
+    .expected-outputs details {
+      margin-top: 12px;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .expected-outputs summary {
+      padding: 8px 12px;
+      background: #f8f9fa;
+      cursor: pointer;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #333;
+      user-select: none;
+    }
+    .expected-outputs summary:hover { background: #eef0f2; }
+    .expected-outputs pre {
+      margin: 0;
+      border: none;
+      border-radius: 0;
+      border-top: 1px solid #e0e0e0;
+      max-height: 400px;
+      overflow-y: auto;
+    }
 </style>
 </head>
 <body>
@@ -106,6 +141,7 @@
       <h2>Output</h2>
       <pre>{{OUTPUT}}</pre>
     </div>
+    {{EXPECTED_OUTPUTS}}
   </div>
 </body>
 </html>

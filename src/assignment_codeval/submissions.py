@@ -117,6 +117,13 @@ def write_html_file(dirpath):
     with open(template_path, "r", encoding="utf-8") as f:
         html_content = f.read()
 
+    links_file = f"{dirpath}/expectedoutput_links.txt"
+    if os.path.exists(links_file):
+        with open(links_file, "r") as f:
+            expected_output_links = f.read()
+    else:
+        expected_output_links = ""
+
     html_content = (html_content
         .replace('{{ASSIGNMENT_NAME}}', _html.escape(assignment_name))
         .replace('{{STUDENT_NAME}}', _html.escape(student_name))
@@ -125,6 +132,7 @@ def write_html_file(dirpath):
         .replace('{{PASS_COUNT}}', str(pass_count))
         .replace('{{FAIL_COUNT}}', str(fail_count))
         .replace('{{OUTPUT}}', colorize_lines(comments_content))
+        .replace('{{EXPECTED_OUTPUT_FILES}}', expected_output_links)
     )
 
     with open(f"{dirpath}/results.html", "w", encoding="utf-8") as dst:
@@ -317,6 +325,7 @@ def evaluate_submissions(codeval_dir, submissions_dir):
         has_cd_tag = False
         zip_files = []
         move_to_next_submission = False
+        expected_output_files = []
         with open(codeval_file, "r") as fd:
             for line in fd:
                 line = line.strip()
@@ -335,6 +344,8 @@ def evaluate_submissions(codeval_dir, submissions_dir):
                         break
                 if line.startswith("Z"):
                     zip_files.append(line.split(None, 1)[1])
+                if line.startswith("OF"):
+                    expected_output_files.append(line.split(None, 1)[1])
 
         # If no CD tag and this is a GitHub submission (has .git), use assignment name as working dir
         if not has_cd_tag and os.path.exists(os.path.join(submission_dir, ".git")):
@@ -359,7 +370,7 @@ def evaluate_submissions(codeval_dir, submissions_dir):
                                 os.chmod(os.path.join(dest_dir, f.filename), perms)
 
         if not move_to_next_submission:
-            command = raw_command.replace("EVALUATE", "cd /submissions; assignment-codeval run-evaluation codeval.txt")
+            command = raw_command.replace("EVALUATE", "cd /SUBMISSIONS; assignment-codeval run-evaluation codeval.txt")
 
             with TemporaryDirectory("cedir", dir="/var/tmp") as link_dir:
                 submission_link = os.path.join(link_dir, "submissions")
@@ -386,7 +397,18 @@ def evaluate_submissions(codeval_dir, submissions_dir):
                         out += bytes(f"\nFAILED with exception {e}\n", encoding='utf-8')
                     finally:
                         info("finished executing docker")
-
+        with open(f"{dirpath}/expectedoutput_links.txt", "w") as f:
+            for x in expected_output_files:
+                filepath = os.path.join(submission_dir, assignment_working_dir, x)
+                try:
+                    with open(filepath, "r") as ef:
+                        content = ef.read()
+                except Exception:
+                    content = "(could not read file)"
+                with open(f"{dirpath}/{x}.html", "w") as exfile:
+                    exfile.write(f"<pre>{content}</pre>")
+                f.write(f"<a href='{dirpath}/{x}.html'>{x}</a>\n")
+                
         info("writing results")
         with open(f"{dirpath}/comments.txt", "ab") as fd:
             fd.write(out)

@@ -41,6 +41,7 @@ compilelog = []
 last_compile_command = ""
 temp_files = []
 _active_temp_files = []
+_emulator_process = None
 
 ###########################################################
 # Specification Tags to Function Mapping
@@ -52,7 +53,7 @@ _BARE_SHELL_COMMANDS = {
     'sed', 'awk', 'find', 'chmod', 'chown', 'touch', 'ln', 'diff',
     'sort', 'head', 'tail', 'cut', 'tr', 'wc', 'bash', 'sh', 'python',
     'python3', 'make', 'export', 'source', 'kill', 'pkill', 'sleep',
-    'printf', 'read', 'unzip', 'tar', 'curl', 'wget',
+    'printf', 'read', 'unzip', 'tar', 'curl', 'wget', 'adb', 'emulator',
 }
 
 
@@ -853,6 +854,77 @@ def start_server(timeout_sec, kill_timeout_sec, *server_cmd):
     kill_timer.start()
 
 
+def start_emulator(args):
+    """Starts an Android emulator and waits until it has fully booted.
+
+    Arguments:
+        args: "<avd_name> <boot_timeout>" where boot_timeout is seconds to wait for boot
+
+    Returns:
+        None
+    """
+    global _emulator_process
+
+    parts = args.split(None, 1)
+    if len(parts) < 2:
+        print("Error: EMULATOR tag requires <avd_name> <boot_timeout>")
+        sys.exit(1)
+
+    avd_name = parts[0]
+    try:
+        boot_timeout = float(parts[1])
+    except ValueError:
+        print(f"Error: EMULATOR boot_timeout must be a number, got '{parts[1]}'")
+        sys.exit(1)
+
+    print(f"Starting Android emulator AVD '{avd_name}' (boot timeout: {boot_timeout}s)")
+
+    _emulator_process = subprocess.Popen(
+        ["emulator", "-avd", avd_name, "-no-window", "-no-audio", "-no-snapshot"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    print(f"Emulator PID: {_emulator_process.pid}. Waiting for device to come online...")
+
+    deadline = time.time() + boot_timeout
+
+    # Wait for adb to detect the device
+    try:
+        subprocess.run(
+            ["adb", "wait-for-device"],
+            timeout=boot_timeout,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"Emulator did not come online within {boot_timeout} seconds. FAIL")
+        sys.exit(1)
+    except subprocess.CalledProcessError:
+        print("adb wait-for-device failed. FAIL")
+        sys.exit(1)
+
+    # Poll until sys.boot_completed=1 (device is fully booted and ready)
+    booted = False
+    while time.time() < deadline:
+        result = subprocess.run(
+            ["adb", "shell", "getprop", "sys.boot_completed"],
+            capture_output=True,
+            text=True,
+        )
+        if result.stdout.strip() == "1":
+            booted = True
+            break
+        time.sleep(2)
+
+    if not booted:
+        print(f"Emulator did not finish booting within {boot_timeout} seconds. FAIL")
+        sys.exit(1)
+
+    print("Emulator booted successfully.")
+
+
 """
 Here is where the tags are mapped to functions.
 Any tags that are added or changed must be modified here.
@@ -885,6 +957,7 @@ tag_func_map = {
     "X": exit_code,
     "SS": start_server,
     "TEMP": register_temp_file,
+    "EMULATOR": start_emulator,
 }
 
 
@@ -1299,8 +1372,29 @@ def check_test():
 
 
 def cleanup():
-    global test_args
+    global test_args, _emulator_process
     test_args = ""
+
+    if _emulator_process is not None:
+        print(f"Stopping emulator (PID {_emulator_process.pid})")
+        try:
+            subprocess.run(
+                ["adb", "emu", "kill"],
+                timeout=10,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+        try:
+            _emulator_process.terminate()
+            _emulator_process.wait(timeout=10)
+        except Exception:
+            try:
+                _emulator_process.kill()
+            except Exception:
+                pass
+        _emulator_process = None
     files = [
         "compilelog",
         "difflog",

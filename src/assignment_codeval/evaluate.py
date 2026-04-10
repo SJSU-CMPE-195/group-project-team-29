@@ -854,6 +854,60 @@ def start_server(timeout_sec, kill_timeout_sec, *server_cmd):
     kill_timer.start()
 
 
+_DEFAULT_AVD_NAME = "Pixel_2_API_28"
+_DEFAULT_AVD_PACKAGE = "system-images;android-28;google_apis;x86"
+_DEFAULT_AVD_DEVICE = "pixel_2"
+
+
+def _ensure_avd_exists(avd_name):
+    """Creates the AVD if it does not already exist.
+
+    Uses Pixel 2 with API 28 (x86) as the default device/package.
+    Installs the system image via sdkmanager if not already present.
+    """
+    # Check if AVD already exists
+    result = subprocess.run(
+        ["avdmanager", "list", "avd", "-c"],
+        capture_output=True,
+        text=True,
+    )
+    existing = [line.strip() for line in result.stdout.splitlines()]
+    if avd_name in existing:
+        print(f"AVD '{avd_name}' already exists, skipping creation.")
+        return
+
+    print(f"AVD '{avd_name}' not found. Installing system image and creating AVD...")
+
+    # Install system image if needed
+    install_result = subprocess.run(
+        ["sdkmanager", "--install", _DEFAULT_AVD_PACKAGE],
+        capture_output=True,
+        text=True,
+    )
+    if install_result.returncode != 0:
+        print(f"sdkmanager failed to install '{_DEFAULT_AVD_PACKAGE}':\n{install_result.stderr}")
+        sys.exit(1)
+
+    # Create the AVD
+    create_result = subprocess.run(
+        [
+            "avdmanager", "create", "avd",
+            "--name", avd_name,
+            "--package", _DEFAULT_AVD_PACKAGE,
+            "--device", _DEFAULT_AVD_DEVICE,
+            "--force",
+        ],
+        input="no\n",  # decline custom hardware profile prompt
+        capture_output=True,
+        text=True,
+    )
+    if create_result.returncode != 0:
+        print(f"avdmanager failed to create AVD '{avd_name}':\n{create_result.stderr}")
+        sys.exit(1)
+
+    print(f"AVD '{avd_name}' created successfully.")
+
+
 def start_emulator(args):
     """Starts an Android emulator and waits until it has fully booted.
 
@@ -876,6 +930,8 @@ def start_emulator(args):
     except ValueError:
         print(f"Error: EMULATOR boot_timeout must be a number, got '{parts[1]}'")
         sys.exit(1)
+
+    _ensure_avd_exists(avd_name)
 
     print(f"Starting Android emulator AVD '{avd_name}' (boot timeout: {boot_timeout}s)")
 

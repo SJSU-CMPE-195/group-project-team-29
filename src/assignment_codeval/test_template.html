@@ -15,7 +15,7 @@
       margin: 0 auto;
       background: #fff;
       border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
       overflow: hidden;
     }
     .header {
@@ -82,9 +82,33 @@
       white-space: pre-wrap;
       word-break: break-word;
     }
-    .pass { color: #2e7d32; font-weight: 600; }
-    .fail { color: #c62828; font-weight: 600; }
-    .error { color: #e65100; font-weight: 600; }
+
+    .pass {
+      color: #2e7d32;
+      font-weight: 600;
+    }
+
+    .fail {
+      color: #c62828;
+      font-weight: 600;
+    }
+
+    .error {
+      color: #e65100;
+      font-weight: 600;
+    }
+
+    .expected {
+      padding: 16px 24px;
+    }
+
+    .expected h2 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin: 0 0 8px;
+      color: #333;
+    }
+
     .expected-link {
       font-size: 0.78rem;
       font-weight: normal;
@@ -92,16 +116,24 @@
       text-decoration: none;
       margin-left: 8px;
     }
-    .expected-link:hover { text-decoration: underline; }
+
+    .expected-link:hover {
+      text-decoration: underline;
+    }
+
     .expected-download {
       display: inline-block;
       font-size: 0.82rem;
       color: #1a73e8;
       text-decoration: none;
     }
-    .expected-download:hover { text-decoration: underline; }
-</style>
+
+    .expected-download:hover {
+      text-decoration: underline;
+    }
+  </style>
 </head>
+
 <body>
   <div class="card">
     <div class="header">
@@ -114,14 +146,20 @@
       <span><strong>Attempt:</strong> {{ATTEMPT}}</span>
     </div>
     <div class="score">
-      <span class="pass-count">&#10003; {{PASS_COUNT}} passed</span>
-      <span class="fail-count">&#10007; {{FAIL_COUNT}} failed</span>
+      <span class="pass-count">&#10003; {{PASS_COUNT}} Tests Passed</span>
+      <span class="fail-count">&#10007; {{FAIL_COUNT}} Tests Failed</span>
     </div>
+    <div class="expected">
+      <h2>Download Expected Output Files for Failed Test Case</h2>
+      <div style="padding: 16px 24px 0; display: flex; flex-direction: column; gap: 6px;">{{EXPECTED_OUTPUTS}}</div>
+    </div>
+
+
     <div class="output">
-      <h2>Output</h2>
+      <h2>Raw CodEval Output</h2>
       <pre>{{OUTPUT}}</pre>
     </div>
-    <div style="padding: 0 24px 16px; display: flex; flex-direction: column; gap: 6px;">{{EXPECTED_OUTPUTS}}</div>
   </div>
 </body>
+
 </html>

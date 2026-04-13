@@ -419,7 +419,9 @@ def upload_submission_comments(submissions_dir, codeval_prefix, delete):
                 if submission:
                     write_html_file(dirpath)
                     file_id = upload_file_for_comment(canvas, course.id, assignment.id, student_id, f"{dirpath}/results.html")
-                    with open(f"{dirpath}/comments.txt", "r") as fd:
+                    canvas_file = f"{dirpath}/comments_canvas.txt"
+                    comment_source = canvas_file if os.path.isfile(canvas_file) else f"{dirpath}/comments.txt"
+                    with open(comment_source, "r", encoding='utf-8') as fd:
                         comment = fd.read(4096)
                         comment = comment.replace("\0", "\\0").strip().replace("<", "&lt;")
                     subs_file = f"{dirpath}/SUBSTITUTIONS.txt"
@@ -580,6 +582,19 @@ def evaluate_submissions(codeval_dir, submissions_dir):
         info("writing results")
         with open(f"{dirpath}/comments.txt", "ab") as fd:
             fd.write(out)
+
+        # Write a canvas-ready version truncated at a line boundary so the
+        # Canvas comment isn't cut off mid-line.
+        CANVAS_COMMENT_LIMIT = 4096
+        decoded = out.decode('utf-8', errors='replace')
+        if len(decoded) > CANVAS_COMMENT_LIMIT:
+            truncated = decoded[:CANVAS_COMMENT_LIMIT].rsplit('\n', 1)[0]
+            canvas_comment = truncated + '\n...[output truncated, see full results in attached results.html]'
+        else:
+            canvas_comment = decoded
+        with open(f"{dirpath}/comments_canvas.txt", "w", encoding='utf-8') as fd:
+            fd.write(canvas_comment)
+
         info("continuing")
 
 

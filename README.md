@@ -1,5 +1,8 @@
 # CodEval
 
+[![CI](https://github.com/SJSU-CMPE-195/group-project-team-29/actions/workflows/test.yml/badge.svg)](https://github.com/SJSU-CMPE-195/group-project-team-29/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/assignment-codeval)](https://pypi.org/project/assignment-codeval/)
+
 Currently CodEval has 3 main components:
 ## 1. Test Simple I/O Programming Assignments on Canvas
 ### codeval.ini contents

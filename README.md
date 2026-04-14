@@ -64,6 +64,7 @@ Tags used in a spec file (\<course name>.codeval)
 | X | Exit Code | Specifies the expected exit code for a test case. Defaults to zero. |
 | SS | Start Server | Command containing timeout (wait until server starts), kill timeout (wait to kill the server), and the command to start a server |
 | TEMP | Temp File | Registers a file to be deleted before the next T, HT, or TCMD test runs (clean state) and again after it completes (cleanup). Only applies to the immediately following test — use a new TEMP tag for each test that needs it. |
+| EMULATOR | Start Android Emulator | `EMULATOR <avd_name> <boot_timeout>` — starts an Android emulator AVD and waits up to `boot_timeout` seconds for it to fully boot before running test cases. The AVD is auto-created (Pixel 2, API 28) if it does not already exist. Sets `ANDROID_SERIAL` so all subsequent `adb` commands in `T`/`HT` tags target the correct device. The emulator is automatically stopped after evaluation. Requires `ANDROID_HOME` to be set and `emulator`, `adb`, `avdmanager`, `sdkmanager` on `PATH`. See [mobile assignment setup](#5-test-mobile-android-assignments). |
 
 Refer to a sample spec file [here](samples/assignment-name.codeval)
 
@@ -327,5 +328,61 @@ ai_test_results/
 - Support files from `support_files/` directory are automatically copied for evaluation
 - Results include pass/fail status, response time, and any errors
 - Use multiple attempts (`-n`) to account for AI response variability
+
+
+## 5. Test Mobile (Android) Assignments
+
+Evaluate Android app submissions using an Android emulator via the `EMULATOR` tag.
+
+### Host / container requirements
+
+| Requirement | Detail |
+|---|---|
+| KVM | Hardware acceleration — Linux host with `/dev/kvm` available. Required inside Docker with `--device /dev/kvm`. |
+| Android SDK | `ANDROID_HOME` env var set to the SDK root (e.g. `/opt/android-sdk`). |
+| Tools on PATH | `$ANDROID_HOME/emulator` and `$ANDROID_HOME/cmdline-tools/latest/bin` must be on `PATH` so that `emulator`, `adb`, `avdmanager`, and `sdkmanager` are accessible. |
+| `lsof` | Used to identify the emulator's adb serial when multiple devices are connected. Available on most Linux systems. |
+
+### codeval.ini contents
+
+```
+[SERVER]
+url=<canvas API>
+token=<canvas token>
+[RUN]
+command=docker run -i -v SUBMISSIONS:/submissions autograder-java bash -c "cd /submissions; EVALUATE"
+mobile_command=docker run -i --device /dev/kvm -e ANDROID_HOME=/opt/android-sdk -v SUBMISSIONS:/submissions autograder-android bash -c "cd /submissions; EVALUATE"
+```
+
+When a codeval file contains an `EMULATOR` tag, `evaluate-submissions` automatically uses `mobile_command` instead of `command`. If `mobile_command` is not set, it falls back to `command` with a warning.
+
+### Specification file example
+
+```
+# Compile the Android project
+C ./gradlew assembleDebug
+
+# Start the emulator (AVD auto-created as Pixel 2 / API 28 if missing)
+EMULATOR Pixel_2_API_28 300
+
+# Install the APK and run tests via adb
+T adb install -r app/build/outputs/apk/debug/app-debug.apk
+O 1 package installed
+
+T adb shell am instrument -w com.example.myapp.test/androidx.test.runner.AndroidJUnitRunner
+X 0
+```
+
+### Command to run
+
+```bash
+assignment-codeval evaluate-submissions <CODEVAL_DIR>
+```
+
+### Notes
+- The AVD (`Pixel_2_API_28`, Pixel 2 device, API 28 x86 system image) is created automatically if it does not already exist. `sdkmanager` installs the system image on first use.
+- `ANDROID_SERIAL` is set automatically to the booted emulator's serial so all `adb` commands in test cases target the correct device.
+- The emulator is shut down cleanly after evaluation completes.
+- Boot typically takes 60–180 seconds; set `boot_timeout` accordingly (300 is a safe default).
 
 

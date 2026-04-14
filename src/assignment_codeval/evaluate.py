@@ -3,6 +3,7 @@
 import ast
 import os
 import re
+import shutil
 import subprocess
 import sys
 import traceback
@@ -860,6 +861,26 @@ _DEFAULT_AVD_PACKAGE = "system-images;android-28;google_apis;x86"
 _DEFAULT_AVD_DEVICE = "pixel_2"
 
 
+def _check_android_sdk():
+    """Validates that the Android SDK tools are available before starting the emulator.
+
+    Checks that ANDROID_HOME is set and that the required tools (emulator, adb,
+    avdmanager, sdkmanager) are on PATH. Exits with a clear error if anything is missing.
+    """
+    if not os.environ.get("ANDROID_HOME"):
+        print("Error: ANDROID_HOME environment variable is not set. "
+              "Set it to your Android SDK root (e.g. /opt/android-sdk).")
+        sys.exit(1)
+
+    required_tools = ["emulator", "adb", "avdmanager", "sdkmanager"]
+    missing = [t for t in required_tools if shutil.which(t) is None]
+    if missing:
+        print(f"Error: The following Android SDK tools are not on PATH: {', '.join(missing)}")
+        print(f"Ensure $ANDROID_HOME/emulator and $ANDROID_HOME/cmdline-tools/latest/bin "
+              f"are added to PATH.")
+        sys.exit(1)
+
+
 def _ensure_avd_exists(avd_name):
     """Creates the AVD if it does not already exist.
 
@@ -969,6 +990,7 @@ def start_emulator(args):
         print(f"Error: EMULATOR boot_timeout must be a number, got '{parts[1]}'")
         sys.exit(1)
 
+    _check_android_sdk()
     _ensure_avd_exists(avd_name)
 
     print(f"Starting Android emulator AVD '{avd_name}' (boot timeout: {boot_timeout}s)")

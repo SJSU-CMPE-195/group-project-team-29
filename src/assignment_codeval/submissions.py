@@ -489,10 +489,11 @@ def evaluate_submissions(codeval_dir, submissions_dir):
         with open(os.path.join(dirpath, "codeval_path.txt"), "w") as f:
             f.write(os.path.abspath(codeval_file))
 
-        # First pass: get CTO, CD tags, and collect Z files (don't extract yet)
+        # First pass: get CTO, CD, EMULATOR tags, and collect Z files (don't extract yet)
         compile_timeout = 20
         assignment_working_dir = "."
         has_cd_tag = False
+        is_mobile = False
         zip_files = []
         move_to_next_submission = False
         with open(codeval_file, "r") as fd:
@@ -513,6 +514,8 @@ def evaluate_submissions(codeval_dir, submissions_dir):
                         break
                 if line.startswith("Z"):
                     zip_files.append(line.split(None, 1)[1])
+                if line.startswith("EMULATOR"):
+                    is_mobile = True
 
         # If no CD tag and this is a GitHub submission (has .git), use assignment name as working dir
         if not has_cd_tag and os.path.exists(os.path.join(submission_dir, ".git")):
@@ -537,7 +540,21 @@ def evaluate_submissions(codeval_dir, submissions_dir):
                                 os.chmod(os.path.join(dest_dir, f.filename), perms)
 
         if not move_to_next_submission:
-            command = raw_command.replace("EVALUATE", "cd /submissions 2>/dev/null || true; assignment-codeval run-evaluation codeval.txt")
+            if is_mobile:
+                mobile_command = parser.get("RUN", {}).get("mobile_command", "").strip()
+                if mobile_command:
+                    effective_command = mobile_command
+                else:
+                    warn(
+                        f"codeval file '{codeval_file}' has an EMULATOR tag but no "
+                        f"mobile_command is set in [RUN] of {parser.config_file}. "
+                        f"Falling back to command=. Ensure it includes --device /dev/kvm "
+                        f"and has the Android SDK available."
+                    )
+                    effective_command = raw_command
+            else:
+                effective_command = raw_command
+            command = effective_command.replace("EVALUATE", "cd /submissions 2>/dev/null || true; assignment-codeval run-evaluation codeval.txt")
 
             with TemporaryDirectory("cedir", dir="/var/tmp") as link_dir:
                 submission_link = os.path.join(link_dir, "submissions")

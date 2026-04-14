@@ -343,6 +343,20 @@ Evaluate Android app submissions using an Android emulator via the `EMULATOR` ta
 | Tools on PATH | `$ANDROID_HOME/emulator` and `$ANDROID_HOME/cmdline-tools/latest/bin` must be on `PATH` so that `emulator`, `adb`, `avdmanager`, and `sdkmanager` are accessible. |
 | `lsof` | Used to identify the emulator's adb serial when multiple devices are connected. Available on most Linux systems. |
 
+### Build the Docker image
+
+A `Dockerfile.android` is included in the repo. Build it once on the grading machine:
+
+```bash
+# Build the base image first (if not already built)
+docker build -t autograder-java .
+
+# Build the Android image (downloads ~1 GB of SDK components)
+docker build -f Dockerfile.android -t autograder-android .
+```
+
+The `autograder-android` image extends `autograder-java` with the Android SDK, emulator, and a pre-created AVD so the first evaluation starts immediately.
+
 ### codeval.ini contents
 
 ```
@@ -351,7 +365,7 @@ url=<canvas API>
 token=<canvas token>
 [RUN]
 command=docker run -i -v SUBMISSIONS:/submissions autograder-java bash -c "cd /submissions; EVALUATE"
-mobile_command=docker run -i --device /dev/kvm -e ANDROID_HOME=/opt/android-sdk -v SUBMISSIONS:/submissions autograder-android bash -c "cd /submissions; EVALUATE"
+mobile_command=docker run -i --device /dev/kvm -v SUBMISSIONS:/submissions autograder-android bash -c "cd /submissions; EVALUATE"
 ```
 
 When a codeval file contains an `EMULATOR` tag, `evaluate-submissions` automatically uses `mobile_command` instead of `command`. If `mobile_command` is not set, it falls back to `command` with a warning.

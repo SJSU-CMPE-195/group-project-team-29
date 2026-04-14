@@ -1,0 +1,29 @@
+FROM autograder-java
+
+# ── Android SDK ──────────────────────────────────────────────────────────────
+# Install prerequisites
+RUN apt-get -y install unzip lsof libgl1
+
+ENV ANDROID_HOME=/opt/android-sdk
+ENV PATH="${PATH}:${ANDROID_HOME}/emulator:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/cmdline-tools/latest/bin"
+
+# Download Android command-line tools
+RUN mkdir -p ${ANDROID_HOME}/cmdline-tools && \
+    wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip && \
+    unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-extracted && \
+    mv /tmp/cmdline-tools-extracted/cmdline-tools ${ANDROID_HOME}/cmdline-tools/latest && \
+    rm /tmp/cmdline-tools.zip
+
+# Accept licenses and install SDK components
+RUN yes | sdkmanager --licenses > /dev/null 2>&1 || true && \
+    sdkmanager \
+        "platform-tools" \
+        "emulator" \
+        "system-images;android-28;google_apis;x86"
+
+# Pre-create the default AVD so the first evaluation doesn't wait for sdkmanager
+RUN echo "no" | avdmanager create avd \
+        --name Pixel_2_API_28 \
+        --package "system-images;android-28;google_apis;x86" \
+        --device pixel_2 \
+        --force

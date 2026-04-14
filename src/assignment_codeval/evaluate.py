@@ -42,6 +42,7 @@ last_compile_command = ""
 temp_files = []
 _active_temp_files = []
 _emulator_process = None
+_emulator_serial = None
 
 ###########################################################
 # Specification Tags to Function Mapping
@@ -908,16 +909,53 @@ def _ensure_avd_exists(avd_name):
     print(f"AVD '{avd_name}' created successfully.")
 
 
+def _get_emulator_serial(pid):
+    """Returns the adb serial (e.g. 'emulator-5554') for the emulator with the given PID.
+
+    Each emulator-XXXX serial corresponds to a console TCP port XXXX. We use lsof to
+    find which process owns that port and match it against the emulator PID we launched.
+    Falls back to the only online serial when there is exactly one emulator running.
+    Returns None if the serial cannot be determined.
+    """
+    devices_result = subprocess.run(
+        ["adb", "devices"],
+        capture_output=True,
+        text=True,
+    )
+    serials = [
+        line.split()[0]
+        for line in devices_result.stdout.splitlines()
+        if line.startswith("emulator-")
+    ]
+
+    for serial in serials:
+        port = int(serial.split("-")[1])
+        lsof_result = subprocess.run(
+            ["lsof", "-iTCP:" + str(port), "-sTCP:LISTEN", "-Fp"],
+            capture_output=True,
+            text=True,
+        )
+        for lsof_line in lsof_result.stdout.splitlines():
+            if lsof_line.startswith("p") and int(lsof_line[1:]) == pid:
+                return serial
+
+    # lsof unavailable or no match — safe fallback when only one emulator is online
+    if len(serials) == 1:
+        return serials[0]
+
+    return None
+
+
 def start_emulator(args):
     """Starts an Android emulator and waits until it has fully booted.
 
     Arguments:
         args: "<avd_name> <boot_timeout>" where boot_timeout is seconds to wait for boot
 
-    Returns:
-        None
+    Sets the ANDROID_SERIAL environment variable so that all subsequent adb commands
+    in test cases automatically target this emulator instance.
     """
-    global _emulator_process
+    global _emulator_process, _emulator_serial
 
     parts = args.split(None, 1)
     if len(parts) < 2:
@@ -960,6 +998,16 @@ def start_emulator(args):
     except subprocess.CalledProcessError:
         print("adb wait-for-device failed. FAIL")
         sys.exit(1)
+
+    # Identify which adb serial belongs to this emulator and pin it via ANDROID_SERIAL
+    # so that all subsequent adb commands in test cases target the right device.
+    serial = _get_emulator_serial(_emulator_process.pid)
+    if serial:
+        _emulator_serial = serial
+        os.environ["ANDROID_SERIAL"] = serial
+        print(f"Emulator serial: {serial} (set as ANDROID_SERIAL)")
+    else:
+        print("Warning: could not determine emulator serial; adb commands may target the wrong device")
 
     # Poll until sys.boot_completed=1 (device is fully booted and ready)
     booted = False
@@ -1428,14 +1476,15 @@ def check_test():
 
 
 def cleanup():
-    global test_args, _emulator_process
+    global test_args, _emulator_process, _emulator_serial
     test_args = ""
 
     if _emulator_process is not None:
         print(f"Stopping emulator (PID {_emulator_process.pid})")
         try:
+            serial_args = ["-s", _emulator_serial] if _emulator_serial else []
             subprocess.run(
-                ["adb", "emu", "kill"],
+                ["adb"] + serial_args + ["emu", "kill"],
                 timeout=10,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -1451,6 +1500,8 @@ def cleanup():
             except Exception:
                 pass
         _emulator_process = None
+        _emulator_serial = None
+        os.environ.pop("ANDROID_SERIAL", None)
     files = [
         "compilelog",
         "difflog",

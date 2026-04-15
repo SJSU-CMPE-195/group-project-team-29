@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <title>CodEval Results – {{ASSIGNMENT_NAME}}</title>
@@ -10,6 +11,7 @@
       margin: 0;
       padding: 24px;
     }
+
     .card {
       max-width: 860px;
       margin: 0 auto;
@@ -18,21 +20,25 @@
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
       overflow: hidden;
     }
+
     .header {
       background: #1a73e8;
       color: #fff;
       padding: 16px 24px;
     }
+
     .header h1 {
       margin: 0;
       font-size: 1.25rem;
       font-weight: 600;
     }
+
     .header p {
       margin: 4px 0 0;
       font-size: 0.9rem;
       opacity: 0.85;
     }
+
     .meta {
       display: flex;
       flex-wrap: wrap;
@@ -43,9 +49,11 @@
       font-size: 0.88rem;
       color: #444;
     }
+
     .meta span strong {
       color: #222;
     }
+
     .score {
       display: flex;
       gap: 12px;
@@ -53,23 +61,28 @@
       border-bottom: 1px solid #e0e0e0;
       font-size: 0.9rem;
     }
+
     .score .pass-count {
       color: #2e7d32;
       font-weight: 600;
     }
+
     .score .fail-count {
       color: #c62828;
       font-weight: 600;
     }
+
     .output {
       padding: 16px 24px;
     }
+
     .output h2 {
       font-size: 0.95rem;
       font-weight: 600;
       margin: 0 0 8px;
       color: #333;
     }
+
     pre {
       margin: 0;
       font-family: "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
@@ -150,6 +163,7 @@
       <span class="fail-count">&#10007; {{FAIL_COUNT}} Tests Failed</span>
     </div>
     <div class="expected">
+      <h2>{{EXPECTED_HEADING}}</h2>
       {{EXPECTED_OUTPUTS}}
     </div>
 

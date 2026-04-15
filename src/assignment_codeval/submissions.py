@@ -263,10 +263,9 @@ def write_html_file(dirpath):
 
     def build_expected_outputs_html():
         if not failed_test_nums:
-            return '<h2 class="pass">All tests passed</h2>'
+            return ''
         import base64 as _base64
-        parts = ['<h2>Download Expected Output Files for Failed Test Case</h2>',
-                 '<div style="padding: 16px 24px 0; display: flex; flex-direction: column; gap: 6px;">']
+        parts = []
         for test_num in sorted(failed_test_nums):
             content = of_contents[test_num]
             b64 = _base64.b64encode(content.encode('utf-8')).decode('ascii')
@@ -276,8 +275,7 @@ def write_html_file(dirpath):
                 f'download="expected_output_test{test_num}.txt" '
                 f'class="expected-download">Expected output for Test Case {test_num}</a>'
             )
-        parts.append('</div>')
-        return '\n'.join(parts)
+        return '<pre>' + '\n'.join(parts) + '</pre>'
 
     try:
         dt = datetime.strptime(last_submitted, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
@@ -301,6 +299,7 @@ def write_html_file(dirpath):
         .replace('{{PASS_COUNT}}', str(pass_count))
         .replace('{{FAIL_COUNT}}', str(fail_count))
         .replace('{{OUTPUT}}', colorize_lines(comments_content))
+        .replace('{{EXPECTED_HEADING}}', 'All tests passed' if not failed_test_nums else 'Download Expected Output Files for Failed Test Case')
         .replace('{{EXPECTED_OUTPUTS}}', build_expected_outputs_html())
     )
 

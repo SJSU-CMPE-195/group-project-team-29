@@ -405,6 +405,68 @@ class TestInstallAssignment:
 
 
 # ---------------------------------------------------------------------------
+# download-submissions (CLI surface only — Canvas API not available in CI)
+# ---------------------------------------------------------------------------
+
+
+class TestDownloadSubmissions:
+    def test_help_exits_zero(self):
+        result = run_cli("download-submissions", "--help")
+        assert result.returncode == 0
+
+    def test_help_shows_course_and_assignment_args(self):
+        result = run_cli("download-submissions", "--help")
+        assert "COURSE" in result.stdout
+        assert "ASSIGNMENT" in result.stdout
+
+    def test_help_shows_options(self):
+        result = run_cli("download-submissions", "--help")
+        for flag in ("--active", "--target-dir", "--include-commented", "--for-name"):
+            assert flag in result.stdout
+
+    def test_missing_args_exits_nonzero(self):
+        # COURSE and ASSIGNMENT are required when --active is not passed
+        result = run_cli("download-submissions")
+        assert result.returncode != 0
+
+    def test_missing_args_shows_usage(self):
+        result = run_cli("download-submissions")
+        output = result.stdout + result.stderr
+        assert "Usage" in output or "Error" in output or "Missing" in output
+
+    def test_no_canvas_config_exits_nonzero(self, tmp_path, monkeypatch):
+        # Point the app config dir to an empty tmp dir so no codeval.ini exists
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = subprocess.run(
+            [CLI, "download-submissions", "TestCourse", "TestAssignment"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "HOME": str(tmp_path)},
+        )
+        assert result.returncode != 0
+
+    def test_no_canvas_config_reports_error(self, tmp_path):
+        result = subprocess.run(
+            [CLI, "download-submissions", "TestCourse", "TestAssignment"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "HOME": str(tmp_path)},
+        )
+        output = result.stdout + result.stderr
+        # Should mention config, SERVER, or canvas rather than a raw traceback
+        assert any(word in output.lower() for word in ("config", "server", "canvas", "token", "error"))
+
+    def test_active_flag_no_canvas_config_exits_nonzero(self, tmp_path):
+        result = subprocess.run(
+            [CLI, "download-submissions", "--active"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "HOME": str(tmp_path)},
+        )
+        assert result.returncode != 0
+
+
+# ---------------------------------------------------------------------------
 # CRT_HW block handling
 # ---------------------------------------------------------------------------
 

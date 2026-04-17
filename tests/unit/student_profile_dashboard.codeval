@@ -1,0 +1,99 @@
+ASSIGNMENT START Student Profile Dashboard
+# Student Profile Dashboard
+
+Create a single-screen Flutter application that models a student's data in a custom
+Dart class and displays that information on a stylized Profile Dashboard.
+
+## Requirements
+
+- `lib/student.dart` with a `Student` class containing `name`, `major`, and `enrollmentDate`
+- Use the `intl` package (`DateFormat`) to format the enrollment date
+- Define a `ThemeData` using a Google Font and a 3-color palette
+- Layout uses `Column` and `Row` widgets with `Image.asset` for the profile picture
+- At least 3 advanced decoration techniques (gradients, shadows, clipping, typography)
+
+## Submission
+
+Submit a `.zip` file containing your `lib/` folder and `pubspec.yaml`.
+
+ASSIGNMENT END
+
+# ── File structure ───────────────────────────────────────────────────────────
+
+T test -f lib/student.dart && echo ok
+O ok
+
+T test -f lib/main.dart && echo ok
+O ok
+
+T test -f pubspec.yaml && echo ok
+O ok
+
+# ── Student class properties ─────────────────────────────────────────────────
+
+T grep -c "String name\|String major\|DateTime enrollmentDate" lib/student.dart
+O 3
+
+# ── Required packages in pubspec.yaml ────────────────────────────────────────
+
+T grep -q "intl:" pubspec.yaml && echo ok
+O ok
+
+T grep -q "google_fonts:" pubspec.yaml && echo ok
+O ok
+
+# ── intl DateFormat used in lib/ ─────────────────────────────────────────────
+
+T grep -rq "DateFormat" lib/ && echo ok
+O ok
+
+# ── ThemeData defined in main.dart ───────────────────────────────────────────
+
+T grep -q "ThemeData" lib/main.dart && echo ok
+O ok
+
+# ── Layout widgets present ───────────────────────────────────────────────────
+
+T grep -rq "Column" lib/ && echo ok
+O ok
+
+T grep -rq "Row" lib/ && echo ok
+O ok
+
+T grep -rq "Image.asset" lib/ && echo ok
+O ok
+
+# ── Decoration techniques (at least 3) ───────────────────────────────────────
+
+# Count how many of the 4 required techniques are present (must be >= 3)
+T sh -c 'n=0; grep -rq LinearGradient lib/ && n=$((n+1)); grep -rq BoxShadow lib/ && n=$((n+1)); grep -rq ClipRRect lib/ && n=$((n+1)); grep -rq letterSpacing lib/ && n=$((n+1)); [ $n -ge 3 ] && echo ok'
+O ok
+
+# ── Build ────────────────────────────────────────────────────────────────────
+
+# Scaffold a full Flutter project and overlay the student's lib/ and pubspec.yaml
+TCMD flutter create --project-name grading_app /tmp/flutter_grading
+TCMD cp -rf lib /tmp/flutter_grading/
+TCMD cp pubspec.yaml /tmp/flutter_grading/
+# Create placeholder images for any declared assets so the build doesn't fail on missing files
+TCMD python3 -c "import re,os; lines=open('/tmp/flutter_grading/pubspec.yaml').read(); [(__import__('os').makedirs(os.path.join('/tmp/flutter_grading',os.path.dirname(a)),exist_ok=True) or open(os.path.join('/tmp/flutter_grading',a),'wb').write(b'\xff\xd8\xff\xd9')) for a in re.findall(r'^\s+-\s+(\S+\.(?:jpg|jpeg|png|gif|webp))',lines,re.M)]"
+
+CTO 300
+C cd /tmp/flutter_grading && flutter pub get
+C cd /tmp/flutter_grading && flutter build apk --debug
+
+T test -f /tmp/flutter_grading/build/app/outputs/flutter-apk/app-debug.apk && echo ok
+O ok
+
+# ── Emulator: install and launch ─────────────────────────────────────────────
+
+EMULATOR Pixel_2_API_28 300
+
+T adb install -r /tmp/flutter_grading/build/app/outputs/flutter-apk/app-debug.apk 2>&1 | grep -q "Success\|package installed" && echo ok
+O ok
+
+# Launch app and verify it reaches the foreground
+CMD adb shell monkey -p grading_app -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1 && sleep 3
+
+T adb shell dumpsys window | grep -c "mCurrentFocus"
+O 1

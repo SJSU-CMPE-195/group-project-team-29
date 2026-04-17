@@ -3,6 +3,7 @@
 import ast
 import os
 import re
+import shutil
 import subprocess
 import sys
 import traceback
@@ -41,6 +42,8 @@ compilelog = []
 last_compile_command = ""
 temp_files = []
 _active_temp_files = []
+_emulator_process = None
+_emulator_serial = None
 
 ###########################################################
 # Specification Tags to Function Mapping
@@ -52,7 +55,8 @@ _BARE_SHELL_COMMANDS = {
     'sed', 'awk', 'find', 'chmod', 'chown', 'touch', 'ln', 'diff',
     'sort', 'head', 'tail', 'cut', 'tr', 'wc', 'bash', 'sh', 'python',
     'python3', 'make', 'export', 'source', 'kill', 'pkill', 'sleep',
-    'printf', 'read', 'unzip', 'tar', 'curl', 'wget',
+    'printf', 'read', 'unzip', 'tar', 'curl', 'wget', 'adb', 'emulator',
+    'flutter', 'dart',
 }
 
 
@@ -853,6 +857,201 @@ def start_server(timeout_sec, kill_timeout_sec, *server_cmd):
     kill_timer.start()
 
 
+_DEFAULT_AVD_NAME = "Pixel_2_API_28"
+_DEFAULT_AVD_PACKAGE = "system-images;android-28;google_apis;x86"
+_DEFAULT_AVD_DEVICE = "pixel_2"
+
+
+def _check_android_sdk():
+    """Validates that the Android SDK tools are available before starting the emulator.
+
+    Checks that ANDROID_HOME is set and that the required tools (emulator, adb,
+    avdmanager, sdkmanager) are on PATH. Exits with a clear error if anything is missing.
+    """
+    if not os.environ.get("ANDROID_HOME"):
+        print("Error: ANDROID_HOME environment variable is not set. "
+              "Set it to your Android SDK root (e.g. /opt/android-sdk).")
+        sys.exit(1)
+
+    required_tools = ["emulator", "adb", "avdmanager", "sdkmanager"]
+    missing = [t for t in required_tools if shutil.which(t) is None]
+    if missing:
+        print(f"Error: The following Android SDK tools are not on PATH: {', '.join(missing)}")
+        print(f"Ensure $ANDROID_HOME/emulator and $ANDROID_HOME/cmdline-tools/latest/bin "
+              f"are added to PATH.")
+        sys.exit(1)
+
+
+def _ensure_avd_exists(avd_name):
+    """Creates the AVD if it does not already exist.
+
+    Uses Pixel 2 with API 28 (x86) as the default device/package.
+    Installs the system image via sdkmanager if not already present.
+    """
+    # Check if AVD already exists
+    result = subprocess.run(
+        ["avdmanager", "list", "avd", "-c"],
+        capture_output=True,
+        text=True,
+    )
+    existing = [line.strip() for line in result.stdout.splitlines()]
+    if avd_name in existing:
+        print(f"AVD '{avd_name}' already exists, skipping creation.")
+        return
+
+    print(f"AVD '{avd_name}' not found. Installing system image and creating AVD...")
+
+    # Install system image if needed
+    install_result = subprocess.run(
+        ["sdkmanager", "--install", _DEFAULT_AVD_PACKAGE],
+        capture_output=True,
+        text=True,
+    )
+    if install_result.returncode != 0:
+        print(f"sdkmanager failed to install '{_DEFAULT_AVD_PACKAGE}':\n{install_result.stderr}")
+        sys.exit(1)
+
+    # Create the AVD
+    create_result = subprocess.run(
+        [
+            "avdmanager", "create", "avd",
+            "--name", avd_name,
+            "--package", _DEFAULT_AVD_PACKAGE,
+            "--device", _DEFAULT_AVD_DEVICE,
+            "--force",
+        ],
+        input="no\n",  # decline custom hardware profile prompt
+        capture_output=True,
+        text=True,
+    )
+    if create_result.returncode != 0:
+        print(f"avdmanager failed to create AVD '{avd_name}':\n{create_result.stderr}")
+        sys.exit(1)
+
+    print(f"AVD '{avd_name}' created successfully.")
+
+
+def _get_emulator_serial(pid):
+    """Returns the adb serial (e.g. 'emulator-5554') for the emulator with the given PID.
+
+    Each emulator-XXXX serial corresponds to a console TCP port XXXX. We use lsof to
+    find which process owns that port and match it against the emulator PID we launched.
+    Falls back to the only online serial when there is exactly one emulator running.
+    Returns None if the serial cannot be determined.
+    """
+    devices_result = subprocess.run(
+        ["adb", "devices"],
+        capture_output=True,
+        text=True,
+    )
+    serials = [
+        line.split()[0]
+        for line in devices_result.stdout.splitlines()
+        if line.startswith("emulator-")
+    ]
+
+    for serial in serials:
+        port = int(serial.split("-")[1])
+        lsof_result = subprocess.run(
+            ["lsof", "-iTCP:" + str(port), "-sTCP:LISTEN", "-Fp"],
+            capture_output=True,
+            text=True,
+        )
+        for lsof_line in lsof_result.stdout.splitlines():
+            if lsof_line.startswith("p") and int(lsof_line[1:]) == pid:
+                return serial
+
+    # lsof unavailable or no match — safe fallback when only one emulator is online
+    if len(serials) == 1:
+        return serials[0]
+
+    return None
+
+
+def start_emulator(args):
+    """Starts an Android emulator and waits until it has fully booted.
+
+    Arguments:
+        args: "<avd_name> <boot_timeout>" where boot_timeout is seconds to wait for boot
+
+    Sets the ANDROID_SERIAL environment variable so that all subsequent adb commands
+    in test cases automatically target this emulator instance.
+    """
+    global _emulator_process, _emulator_serial
+
+    parts = args.split(None, 1)
+    if len(parts) < 2:
+        print("Error: EMULATOR tag requires <avd_name> <boot_timeout>")
+        sys.exit(1)
+
+    avd_name = parts[0]
+    try:
+        boot_timeout = float(parts[1])
+    except ValueError:
+        print(f"Error: EMULATOR boot_timeout must be a number, got '{parts[1]}'")
+        sys.exit(1)
+
+    _check_android_sdk()
+    _ensure_avd_exists(avd_name)
+
+    print(f"Starting Android emulator AVD '{avd_name}' (boot timeout: {boot_timeout}s)")
+
+    _emulator_process = subprocess.Popen(
+        ["emulator", "-avd", avd_name, "-no-window", "-no-audio", "-no-snapshot"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    print(f"Emulator PID: {_emulator_process.pid}. Waiting for device to come online...")
+
+    deadline = time.time() + boot_timeout
+
+    # Wait for adb to detect the device
+    try:
+        subprocess.run(
+            ["adb", "wait-for-device"],
+            timeout=boot_timeout,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"Emulator did not come online within {boot_timeout} seconds. FAIL")
+        sys.exit(1)
+    except subprocess.CalledProcessError:
+        print("adb wait-for-device failed. FAIL")
+        sys.exit(1)
+
+    # Identify which adb serial belongs to this emulator and pin it via ANDROID_SERIAL
+    # so that all subsequent adb commands in test cases target the right device.
+    serial = _get_emulator_serial(_emulator_process.pid)
+    if serial:
+        _emulator_serial = serial
+        os.environ["ANDROID_SERIAL"] = serial
+        print(f"Emulator serial: {serial} (set as ANDROID_SERIAL)")
+    else:
+        print("Warning: could not determine emulator serial; adb commands may target the wrong device")
+
+    # Poll until sys.boot_completed=1 (device is fully booted and ready)
+    booted = False
+    while time.time() < deadline:
+        result = subprocess.run(
+            ["adb", "shell", "getprop", "sys.boot_completed"],
+            capture_output=True,
+            text=True,
+        )
+        if result.stdout.strip() == "1":
+            booted = True
+            break
+        time.sleep(2)
+
+    if not booted:
+        print(f"Emulator did not finish booting within {boot_timeout} seconds. FAIL")
+        sys.exit(1)
+
+    print("Emulator booted successfully.")
+
+
 """
 Here is where the tags are mapped to functions.
 Any tags that are added or changed must be modified here.
@@ -885,6 +1084,7 @@ tag_func_map = {
     "X": exit_code,
     "SS": start_server,
     "TEMP": register_temp_file,
+    "EMULATOR": start_emulator,
 }
 
 
@@ -1289,6 +1489,7 @@ def check_test():
 
         _post_test_temp_cleanup()
         cleanup()
+        _stop_emulator()
 
         # Exit program after failed test case
         sys.exit(2)
@@ -1296,6 +1497,34 @@ def check_test():
     # reinitialize test variables and files here
     _post_test_temp_cleanup()
     setup()
+
+
+def _stop_emulator():
+    """Shut down the running emulator process, if any. Called only at end of evaluation."""
+    global _emulator_process, _emulator_serial
+    if _emulator_process is not None:
+        print(f"Stopping emulator (PID {_emulator_process.pid})")
+        try:
+            serial_args = ["-s", _emulator_serial] if _emulator_serial else []
+            subprocess.run(
+                ["adb"] + serial_args + ["emu", "kill"],
+                timeout=10,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+        try:
+            _emulator_process.terminate()
+            _emulator_process.wait(timeout=10)
+        except Exception:
+            try:
+                _emulator_process.kill()
+            except Exception:
+                pass
+        _emulator_process = None
+        _emulator_serial = None
+        os.environ.pop("ANDROID_SERIAL", None)
 
 
 def cleanup():
@@ -1365,6 +1594,7 @@ def run_evaluation(codeval_file):
         parse_tags(testcases)
 
     check_test()
+    _stop_emulator()
 
     end_time_seconds = time.time()
     print(f"took {end_time_seconds - start_time_seconds} seconds")

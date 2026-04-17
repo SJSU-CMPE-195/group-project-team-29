@@ -310,3 +310,40 @@ class TestApplySubstitutions:
 
     def test_deletion(self):
         assert _apply_substitutions("hello world", [("world", "")]) == "hello "
+
+
+class TestStartEmulatorValidation:
+    """Tests for start_emulator argument validation (no Android SDK required)."""
+
+    def test_missing_args_exits(self):
+        """start_emulator should exit when called with no arguments."""
+        from assignment_codeval.evaluate import start_emulator
+        with pytest.raises(SystemExit):
+            start_emulator("")
+
+    def test_missing_boot_timeout_exits(self):
+        """start_emulator should exit when only avd_name is provided."""
+        from assignment_codeval.evaluate import start_emulator
+        with pytest.raises(SystemExit):
+            start_emulator("Pixel_2_API_28")
+
+    def test_invalid_boot_timeout_exits(self):
+        """start_emulator should exit when boot_timeout is not a number."""
+        from assignment_codeval.evaluate import start_emulator
+        with pytest.raises(SystemExit):
+            start_emulator("Pixel_2_API_28 notanumber")
+
+    def test_missing_android_home_exits(self, monkeypatch):
+        """start_emulator should exit when ANDROID_HOME is not set."""
+        from assignment_codeval.evaluate import start_emulator
+        monkeypatch.delenv("ANDROID_HOME", raising=False)
+        with pytest.raises(SystemExit):
+            start_emulator("Pixel_2_API_28 300")
+
+    def test_missing_sdk_tools_exits(self, monkeypatch, tmp_path):
+        """start_emulator should exit when SDK tools are not on PATH."""
+        from assignment_codeval.evaluate import start_emulator
+        monkeypatch.setenv("ANDROID_HOME", str(tmp_path))
+        monkeypatch.setenv("PATH", str(tmp_path))  # empty PATH — no tools available
+        with pytest.raises(SystemExit):
+            start_emulator("Pixel_2_API_28 300")

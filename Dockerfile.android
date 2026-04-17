@@ -2,7 +2,7 @@ FROM autograder-java
 
 # ── Android SDK ──────────────────────────────────────────────────────────────
 # Install prerequisites
-RUN apt-get -y install unzip lsof libgl1
+RUN apt-get -y install unzip lsof libgl1 git curl xz-utils
 
 ENV ANDROID_HOME=/opt/android-sdk
 ENV PATH="${PATH}:${ANDROID_HOME}/emulator:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/cmdline-tools/latest/bin"
@@ -27,3 +27,13 @@ RUN echo "no" | avdmanager create avd \
         --package "system-images;android-28;google_apis;x86" \
         --device pixel_2 \
         --force
+
+# ── Flutter SDK ──────────────────────────────────────────────────────────────
+ENV FLUTTER_HOME=/opt/flutter
+ENV PATH="${PATH}:${FLUTTER_HOME}/bin"
+ENV PUB_CACHE=/root/.pub-cache
+
+RUN git clone --depth 1 --branch stable https://github.com/flutter/flutter.git ${FLUTTER_HOME} && \
+    flutter config --no-analytics && \
+    flutter precache --android && \
+    yes | flutter doctor --android-licenses > /dev/null 2>&1 || true

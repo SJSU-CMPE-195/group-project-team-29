@@ -55,7 +55,7 @@ url=
 db=
 ```
 
-For mobile (Android) assignments, add:
+For mobile (Flutter/Dart) assignments, add:
 ```ini
 [RUN]
 mobile_command=docker run -i --device /dev/kvm -v SUBMISSIONS:/submissions autograder-android bash -c "cd /submissions; EVALUATE"
@@ -196,9 +196,28 @@ assignment-codeval test-with-ai my_assignment.codeval -m "Claude Sonnet 4" -n 3
 | `-m, --models` | Specific models to test (repeatable) |
 | `-p, --providers` | Filter by provider: `anthropic`, `openai`, `google` |
 
-### Mobile (Android) Assignments
+### Mobile (Flutter/Dart) Assignments
 
-Evaluate Android app submissions using an Android emulator via the `EMULATOR` tag.
+Evaluate Flutter/Dart app submissions developed in Android Studio using the `EMULATOR` tag. Students submit a standard Flutter project via GitHub — the autograder builds and tests it inside the `autograder-android` Docker container.
+
+#### Student submission
+
+Students submit a GitHub repository containing a Flutter project created in Android Studio:
+
+```
+my_flutter_app/
+├── lib/
+│   └── main.dart
+├── integration_test/
+│   └── app_test.dart
+├── test/
+│   └── widget_test.dart
+├── pubspec.yaml
+├── android/
+└── ...
+```
+
+The student does **not** need to configure anything about the emulator — the `.codeval` file handles that entirely.
 
 #### Host / container requirements
 
@@ -206,7 +225,8 @@ Evaluate Android app submissions using an Android emulator via the `EMULATOR` ta
 |---|---|
 | KVM | Hardware acceleration — Linux host with `/dev/kvm` available. Required inside Docker with `--device /dev/kvm`. |
 | Android SDK | `ANDROID_HOME` env var set to the SDK root (e.g. `/opt/android-sdk`). |
-| Tools on PATH | `$ANDROID_HOME/emulator` and `$ANDROID_HOME/cmdline-tools/latest/bin` must be on `PATH` so that `emulator`, `adb`, `avdmanager`, and `sdkmanager` are accessible. |
+| Flutter SDK | Installed at `/opt/flutter` in the `autograder-android` image; `flutter` and `dart` are on `PATH`. |
+| Tools on PATH | `emulator`, `adb`, `avdmanager`, `sdkmanager`, `flutter`, `dart` must all be accessible. |
 | `lsof` | Used to identify the emulator's adb serial when multiple devices are connected. |
 
 #### Build the Docker image
@@ -217,35 +237,44 @@ A `Dockerfile.android` is included in the repo. Build it once on the grading mac
 # Build the base image first (if not already built)
 docker build -t autograder-java .
 
-# Build the Android image (downloads ~1 GB of SDK components)
+# Build the Android + Flutter image (~2 GB download, takes several minutes)
 docker build -f Dockerfile.android -t autograder-android .
 ```
 
-The `autograder-android` image extends `autograder-java` with the Android SDK, emulator, and a pre-created AVD.
+The `autograder-android` image extends `autograder-java` with the Android SDK, Flutter SDK, emulator, and a pre-created AVD.
 
-#### Example specification file
+#### Example specification file (integration tests)
 
 ```
-# Compile the Android project
-C ./gradlew assembleDebug
+# Fetch Flutter dependencies
+C flutter pub get
 
 # Start the emulator (AVD auto-created as Pixel 2 / API 28 if missing)
 EMULATOR Pixel_2_API_28 300
 
-# Install the APK and run tests via adb
-T adb install -r app/build/outputs/apk/debug/app-debug.apk
-O 1 package installed
+# Run Flutter integration tests against the running emulator
+T flutter test integration_test/app_test.dart
+X 0
+```
 
-T adb shell am instrument -w com.example.myapp.test/androidx.test.runner.AndroidJUnitRunner
+#### Example specification file (unit/widget tests — no emulator needed)
+
+If the assignment only requires unit or widget tests, skip the `EMULATOR` tag entirely and use a standard (non-mobile) Docker container:
+
+```
+C flutter pub get
+
+T flutter test test/widget_test.dart
 X 0
 ```
 
 #### Notes
 - The AVD (`Pixel_2_API_28`, Pixel 2, API 28 x86 system image) is created automatically if it does not exist.
-- `ANDROID_SERIAL` is set automatically to the booted emulator's serial so all `adb` commands target the correct device.
+- `ANDROID_SERIAL` is set automatically to the booted emulator's serial so all `adb` and `flutter` commands target the correct device.
 - The emulator is shut down cleanly after evaluation completes.
 - Boot typically takes 60–180 seconds; set `boot_timeout` accordingly (300 is a safe default).
 - When a codeval file contains an `EMULATOR` tag, `evaluate-submissions` automatically uses `mobile_command` instead of `command`. If `mobile_command` is not set, it falls back to `command` with a warning.
+- `flutter pub get` must run before any `flutter test` or `flutter build` command so dependencies are available inside the container.
 
 ## Project Structure
 

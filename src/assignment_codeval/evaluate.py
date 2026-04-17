@@ -56,6 +56,7 @@ _BARE_SHELL_COMMANDS = {
     'sort', 'head', 'tail', 'cut', 'tr', 'wc', 'bash', 'sh', 'python',
     'python3', 'make', 'export', 'source', 'kill', 'pkill', 'sleep',
     'printf', 'read', 'unzip', 'tar', 'curl', 'wget', 'adb', 'emulator',
+    'flutter', 'dart',
 }
 
 
@@ -1488,6 +1489,7 @@ def check_test():
 
         _post_test_temp_cleanup()
         cleanup()
+        _stop_emulator()
 
         # Exit program after failed test case
         sys.exit(2)
@@ -1497,10 +1499,9 @@ def check_test():
     setup()
 
 
-def cleanup():
-    global test_args, _emulator_process, _emulator_serial
-    test_args = ""
-
+def _stop_emulator():
+    """Shut down the running emulator process, if any. Called only at end of evaluation."""
+    global _emulator_process, _emulator_serial
     if _emulator_process is not None:
         print(f"Stopping emulator (PID {_emulator_process.pid})")
         try:
@@ -1524,6 +1525,11 @@ def cleanup():
         _emulator_process = None
         _emulator_serial = None
         os.environ.pop("ANDROID_SERIAL", None)
+
+
+def cleanup():
+    global test_args
+    test_args = ""
     files = [
         "compilelog",
         "difflog",
@@ -1588,6 +1594,7 @@ def run_evaluation(codeval_file):
         parse_tags(testcases)
 
     check_test()
+    _stop_emulator()
 
     end_time_seconds = time.time()
     print(f"took {end_time_seconds - start_time_seconds} seconds")

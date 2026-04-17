@@ -4,9 +4,6 @@
 [![codecov](https://codecov.io/gh/SJSU-CMPE-195/group-project-team-29/branch/main/graph/badge.svg)](https://codecov.io/gh/SJSU-CMPE-195/group-project-team-29)
 [![PyPI](https://img.shields.io/pypi/v/assignment-codeval)](https://pypi.org/project/assignment-codeval/)
 
-Currently CodEval has 3 main components:
-## 1. Test Simple I/O Programming Assignments on Canvas
-### codeval.ini contents
 A Python utility to download student submissions to programming assignments from Canvas and GitHub and evaluate them using codeval scripts.
 
 ## Team
